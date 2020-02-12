@@ -1,0 +1,212 @@
+---
+title: "Classificação de tumores usando kNN"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 2. Bibliotecas utilizadas
+
+More on `tidyverse` [here](https://www.rdocumentation.org/packages/tidyverse/versions/1.3.0).
+
+More on `caret` [here](https://www.rdocumentation.org/packages/caret/versions/6.0-85).
+
+More on `class` [here](https://www.rdocumentation.org/packages/class/versions/7.3-15).
+
+```{r warning=FALSE,message=FALSE}
+library(tidyverse)
+library(caret)
+library(class)
+```
+
+## 3. Importando os dados
+
+You can also embed plots, for example:
+
+```{r}
+data <- read.csv("wisc_bc_data.csv")[,-1]
+data$diagnosis <- factor(data$diagnosis, levels = c("B","M"), ordered = T)
+data[,2:ncol(data)] <- sapply(data[,2:ncol(data)], as.numeric)
+row.names(data) <- as.numeric(row.names(data))
+```
+
+## 4. Análise exploratória dos dados
+
+### 4.1 Verificando os tipos dos dados e ausência de valores
+
+Verificando as primeiras linhas da tabela:
+
+```{r}
+head(data)
+```
+
+Verificando a existência de *missing values*:
+
+```{r}
+colSums(is.na(data))
+```
+
+### 4.2 Verificando quantidade da variável dependente no dataset
+
+Total de Benignos e Malignos:
+
+```{r}
+table(data$diagnosis)
+```
+
+Benignos e Malignos em %:
+
+```{r}
+round(prop.table(table(data$diagnosis))*100, digits = 2)
+```
+
+###  4.3 Normalizando as variáveis quantitativas
+
+#### 4.3.1 Normalização Min-Max
+
+$$
+x_{\text{norm}} = \displaystyle\frac{x - \min(x)}{\max(x) - \min(x)}
+$$
+
+```{r}
+norm.minmax <- function(x) {
+  return((x - min(x))/(max(x) - min(x)))
+}
+```
+
+---
+
+#### 4.3.2 Normalização $Z$-score
+
+$$
+x_{\text{norm}} = \displaystyle\frac{x - \text{mean}(x)}{\text{sd}(x)}
+$$
+
+```{r}
+norm.zscore <- function(x) {
+  return((x - mean(x))/sd(x))
+}
+```
+
+---
+
+#### 4.3.3 Normalizando os dados
+
+```{r}
+data_norm1 <- as.data.frame(lapply(data[,2:ncol(data)], norm.minmax))
+data_norm2 <- as.data.frame(lapply(data[,2:ncol(data)], norm.zscore))
+```
+
+## 5. Construindo o modelo de Classificação k-NN
+
+### 5.1 Criando dataset de treino e teste
+
+```{r}
+test.size <- 0.20
+split_row <- as.integer((1 - test.size) * nrow(data))
+```
+
+
+Dataset de treino e teste utilizando a normalização min-max:
+
+```{r}
+train1 <- data_norm1[1:split_row,]
+test1 <- data_norm1[(split_row+1):nrow(data_norm1),]
+```
+
+Dataset de treino e teste utilizando o $Z$-score para normalização dos dados:
+
+```{r}
+train2 <- data_norm2[1:split_row,]
+test2 <- data_norm2[(split_row+1):nrow(data_norm2),]
+```
+
+Criando as labels de saída:
+
+```{r}
+label.train <- data[1:split_row, 1]
+label.test <- data[(split_row+1):nrow(data), 1]
+```
+
+### 5.2 Criando o modelo k-NN
+
+Uma sugestão acadêmica para a escolha do $k$ é calcular a raiz quadrada do tamanho da amostra e usar o
+valor obtido:
+
+```{r}
+k <- ceiling(sqrt(nrow(data)))
+```
+
+Modelo com normalização min-max:
+
+```{r}
+#label.train
+data_pred1 <- knn(train = train1, test = test1, cl = label.train, k = k)
+```
+
+Modelo normalizado com $Z$-score:
+
+```{r}
+data_pred2 <- knn(train = train2, test = test2, cl = label.train, k = k)
+```
+
+#### 5.2.1 Matriz de Confusão usando o modelo normalizado com min-max
+
+```{r}
+confusionMatrix(data_pred1, label.test)
+```
+
+---
+
+#### 5.2.2 Matriz de Confusão usando o modelo por $Z$-score
+
+```{r}
+confusionMatrix(data_pred2, label.test)
+
+```
+
+***
+
+## <u>Extra</u>: Tuning $k$
+
+```{r echo=F}
+library(mltools)
+```
+
+```{r}
+scores <- c()
+ks <- 2:as.integer(sqrt(nrow(data)))
+
+for (k in ks) {
+  preds <- knn(train = train1, test = test1, cl = label.train, k = k)
+  f1 <- as.numeric(confusionMatrix(preds, label.test)$byClass["F1"])
+  scores <- append(scores, f1)
+}
+```
+
+```{r}
+ymin <- 0.95
+ymax <- 1.00
+
+plot(ks, scores, type = "l", lwd=2,
+     main="F1 Score per num. of neighbors",
+     xlab = "# neighbors", ylab = "Score", ylim = c(ymin, ymax))
+
+# Best k
+points(ks[which.max(scores)], max(scores), pch=21, col="red")
+
+# Vertical line
+lines(x = c(ks[which.max(scores)], ks[which.max(scores)]),
+      y = c(ymin, max(scores)),
+      lty=3, col="darkgray", lwd=1.5)
+
+# Horizontal line
+lines(x = c(min(ks), ks[which.max(scores)]),
+      y = c(max(scores), max(scores)),
+      lty=3, col="darkgray", lwd=1.5)
+
+legend("bottomright", pch=21, col="red", legend = "Best k")
+```
